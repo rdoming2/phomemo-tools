@@ -1,7 +1,8 @@
 # Phomemo-tools
 
 This package is trying to provide tools to print pictures using
-the Phomemo M02, M02 Pro, M02S, M110, M120, M220, T02 and M832 thermal printers from Linux.
+the Phomemo M02, M02 Pro, M02S, M110, M120, M220, T02, M832 and M832D thermal printers
+from Linux.
 
 All the information here has been reverse-engineered sniffing
 the bluetooth packets emitted by the Android application.
@@ -33,6 +34,11 @@ $ sudo rfcomm connect 0 DC:0D:30:90:23:C7
   Connected /dev/rfcomm0 to DC:0D:30:90:23:C7 on channel 1
   Press CTRL-C for hangup
 ```
+
+The M832D is Bluetooth Low Energy only and has no RFCOMM channel, so `rfcomm`
+does not apply to it. Print to it through the CUPS backend in section 2, which
+selects the configured printer by the address in the queue URI, chooses the LE
+bearer explicitly, and resolves the FF02 and FF03 characteristics by UUID.
 
 * Send the picture to the printer (the python script currently only works with M02 printers):
 
@@ -109,6 +115,10 @@ Next you need to ensure the required dependencies are installed (if this is skip
 ```
   $ sudo apt-get install python3-pil python3-pyusb
 ```
+
+For the M832D Bluetooth Low Energy backend, also install `python3-bleak` and
+`python3-dbus-fast`. They are only used for M832D queues, so the other models
+work without them.
 
 Finally once you are in the folder containing your copy of this repository you can build and install phomemo-tools files:
 
@@ -233,6 +243,32 @@ Medium, Dark) and `PrintMode` (Grayscale, BlackWhite).
   $ sudo lpadmin -p M832 -E -v phomemo://DC0D309023C7 \
                            -P /usr/share/cups/model/Phomemo/Phomemo-M832.ppd.gz
 ```
+
+###### 2.2.2.1.4 M832D
+
+The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. Pair it, then
+define the queue with the same "phomemo" backend:
+
+```
+  $ sudo bluetoothctl pair DC:0D:30:90:23:C7
+  $ sudo lpadmin -p M832D -E -v phomemo://DC0D309023C7 \
+                           -P /usr/share/cups/model/Phomemo/Phomemo-M832D.ppd.gz
+```
+
+The backend reads the ModelName from the PPD of the job and only routes queues
+whose model is in the BLE whitelist to the phomemo-ble backend; every other model
+keeps the RFCOMM path unchanged. Add a model to `BLE_MODELS` in
+`cups/backend/phomemo.py` to extend the whitelist. The backend can also be reached
+directly with the `phomemo-ble://` scheme, and an M832D queue on a
+`serial:/dev/usb/lp0` device uses the same filter over USB.
+
+The SELinux note above covers the RFCOMM socket. The BLE backend reaches BlueZ
+over D-Bus instead, which may need a different policy; the permissive setting is
+not sufficient on its own.
+
+A successful backend exit and an ATT acknowledgement confirm that the host
+delivered bytes, not that the printer physically finished the page. The backend
+does not retry once data may have reached the printer.
 
 ##### 2.2.2.2. USB
 
@@ -506,3 +542,26 @@ Dumpping USB packets.
   0x1f 0xf0 0x05 0x00
   0x1f 0xf0 0x03 0x00
 ```
+
+# 6. Protocol for M832D
+
+The M832D uses the same GS v 0 raster block and ESC d feed as the M04 family, but
+its setup block is a fixed sequence that includes two things no other Phomemo
+model understands: the readiness query and a vendor triple.
+
+```
+  0x1f 0x11 0x08      -> readiness query, answered by 0x1a 0x04 on the back channel
+  0x1f 0x11 0x37 0x37 -> heat, fixed at 0x37
+  0xaa 0xab 0xac 0x02 -> vendor triple, meaning unexplained
+  0x1f 0x11 0x02      -> print density, default 0x02
+  0x1f 0x11 0x0b      -> media type: continuous
+  0x1f 0x11 0x35 0x00 -> compression: raw
+```
+
+The image is sent as one GS v 0 block per page, with 16-bit little-endian byte
+width and line count. The inter-page feed is ESC d 2 and the job footer is two
+ESC d 2 commands.
+
+The filter defaults to the same PIL dithering the other filters use. Atkinson,
+Floyd-Steinberg and a plain threshold remain available as explicit choices, and
+the threshold value applies only to those renderers.
