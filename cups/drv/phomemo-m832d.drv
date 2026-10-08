@@ -1,6 +1,8 @@
 //
 // Driver info file for Phomemo M832D
 //
+// Copyright (c) 2026 Richard Dominguez <54754277+rdoming2@users.noreply.github.com>
+//
 // BLE-only model: the phomemo backend delegates queues using this driver to the
 // phomemo-ble backend. The same filter also serves the USB queue.
 //
