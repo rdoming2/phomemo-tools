@@ -128,6 +128,34 @@ Finally once you are in the folder containing your copy of this repository you c
   $ sudo make install
 ```
 
+To remove the files installed above, run the same commands with `uninstall`
+(from the repository root, or from the `cups/` directory if that is where you
+installed):
+
+```
+  $ sudo make uninstall
+```
+
+If the glabels template was installed for your own user with `make user-install`,
+remove it with:
+
+```
+  $ make user-uninstall
+```
+
+Uninstall only removes the files this repository installs; it does not remove the
+CUPS printer queues created in section 2.2. Remove a queue with:
+
+```
+  $ sudo lpadmin -x M02
+```
+
+If phomemo-tools was installed from the COPR RPM, use the package manager instead:
+
+```
+  $ sudo dnf remove phomemo-tools
+```
+
 ### 2.2. Configuration
 
 #### 2.2.1. GUI
