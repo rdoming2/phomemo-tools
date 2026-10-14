@@ -113,12 +113,44 @@ On Debian you have to install cups:
 Next you need to ensure the required dependencies are installed (if this is skipped you will see a 'Filter Failure' error when trying to print):
 
 ```
-  $ sudo apt-get install python3-pil python3-pyusb
+  $ sudo apt-get install python3-pil python3-usb
 ```
 
 For the M832D Bluetooth Low Energy backend, also install `python3-bleak` and
 `python3-dbus-fast`. They are only used for M832D queues, so the other models
 work without them.
+
+#### Ubuntu 24.04 LTS
+
+The M832D filters and the CUPS backends have been tested and work on Ubuntu 24.04 LTS.
+
+```
+  $ sudo apt-get update
+  $ sudo apt-get install cups python3-pil python3-usb python3-bleak python3-dbus-fast
+```
+
+Pairing over BLE needs BlueZ experimental mode. Enable it with a systemd override
+and restart the daemon before pairing the printer:
+
+```
+  $ sudo systemctl edit bluetooth
+```
+
+and add:
+
+```
+  [Service]
+  ExecStart=
+  ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
+```
+
+The blank `ExecStart=` line is required to clear the original one. Then:
+
+```
+  $ sudo systemctl daemon-reload
+  $ sudo systemctl restart bluetooth
+```
+
 
 Finally once you are in the folder containing your copy of this repository you can build and install phomemo-tools files:
 
@@ -263,8 +295,9 @@ The -p option defines the printer name. It should be changed according to the pr
 
 ###### 2.2.2.1.3 M832D
 
-The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. Pair it, then
-define the queue with the same "phomemo" backend:
+The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. On Ubuntu
+24.04, enable BlueZ experimental mode first (see the Ubuntu subsection in section
+2.1), then pair it and define the queue with the same "phomemo" backend:
 
 ```
   $ sudo bluetoothctl pair DC:0D:30:90:23:C7
