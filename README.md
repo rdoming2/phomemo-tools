@@ -129,28 +129,8 @@ The M832D filters and the CUPS backends have been tested and work on Ubuntu 24.0
   $ sudo apt-get install cups python3-pil python3-usb python3-bleak python3-dbus-fast
 ```
 
-Pairing over BLE needs BlueZ experimental mode. Enable it with a systemd override
-and restart the daemon before pairing the printer:
-
-```
-  $ sudo systemctl edit bluetooth
-```
-
-and add:
-
-```
-  [Service]
-  ExecStart=
-  ExecStart=/usr/lib/bluetooth/bluetoothd --experimental
-```
-
-The blank `ExecStart=` line is required to clear the original one. Then:
-
-```
-  $ sudo systemctl daemon-reload
-  $ sudo systemctl restart bluetooth
-```
-
+Pairing over BLE needs BlueZ experimental mode; see section 2.2.2.1.3 for the
+requirement and how to enable it.
 
 Finally once you are in the folder containing your copy of this repository you can build and install phomemo-tools files:
 
@@ -295,9 +275,33 @@ The -p option defines the printer name. It should be changed according to the pr
 
 ###### 2.2.2.1.3 M832D
 
-The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. On Ubuntu
-24.04, enable BlueZ experimental mode first (see the Ubuntu subsection in section
-2.1), then pair it and define the queue with the same "phomemo" backend:
+The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. BlueZ
+experimental mode is required for it on both Ubuntu and Fedora, because the BLE
+backend needs the experimental D-Bus interfaces (the LE bearer, PreferredBearer and
+ConnectDevice) to pair and connect the printer.
+
+Set it in /etc/bluetooth/main.conf under [General]:
+
+```
+  Experimental = true
+```
+
+and restart the daemon before pairing the printer:
+
+```
+  $ sudo systemctl restart bluetooth
+```
+
+The deprecated equivalent is running bluetoothd with `--experimental`
+(`/usr/libexec/bluetooth/bluetoothd` on Fedora, `/usr/lib/bluetooth/bluetoothd` on
+Ubuntu): one of the two is enough, and main.conf is the persistent form. The
+`experimental on` command inside bluetoothctl only affects the client and not the
+daemon, so it is not sufficient on its own.
+
+A bond created before experimental mode was enabled may have no LE bearer, so a
+printer that was paired earlier has to be paired again.
+
+Then pair the printer and define the queue with the same "phomemo" backend:
 
 ```
   $ sudo bluetoothctl pair DC:0D:30:90:23:C7
