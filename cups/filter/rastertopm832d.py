@@ -58,7 +58,7 @@ CupsRas3 = namedtuple(
     'HWResolutionV ImagingBoundingBoxL ImagingBoundingBoxB ImagingBoundingBoxR ImagingBoundingBoxT '
     'InsertSheet Jog LeadingEdge MarginsL MarginsB ManualFeed MediaPosition MediaWeight MirrorPrint '
     'NegativePrint NumCopies Orientation OutputFaceUp PageSizeW PageSizeH Separations TraySwitch Tumble cupsWidth '
-    'cupsHeight cupsMediaType cupsBitsPerColor cupsBitsPerPixel cupsBitsPerLine cupsColorOrder cupsColorSpace '
+    'cupsHeight cupsMediaType cupsBitsPerColor cupsBitsPerPixel cupsBytesPerLine cupsColorOrder cupsColorSpace '
     'cupsCompression cupsRowCount cupsRowFeed cupsRowStep cupsNumColors cupsBorderlessScalingFactor cupsPageSizeW '
     'cupsPageSizeH cupsImagingBBoxL cupsImagingBBoxB cupsImagingBBoxR cupsImagingBBoxT cupsInteger1 cupsInteger2 '
     'cupsInteger3 cupsInteger4 cupsInteger5 cupsInteger6 cupsInteger7 cupsInteger8 cupsInteger9 cupsInteger10 '
@@ -91,16 +91,19 @@ def read_ras3(rdata):
             rdata[0:1796]
         )
         data = [
-            # Strip trailing null-bytes of strings
-            b.decode().rstrip('\x00') if isinstance(b, bytes) else b
+            # Strip trailing null-bytes of strings. Header string fields are C
+            # strings and may carry non-UTF-8 bytes; they are never used by this
+            # filter, so decode them without raising.
+            b.decode(errors='replace').rstrip('\x00') if isinstance(b, bytes) else b
             for b in struct_data
         ]
         header = CupsRas3._make(data)
 
-        # Read image data of this page into a bytearray. cupsRowStep is the real
-        # row stride, so a padded row is stripped rather than silently shifting
-        # every following row.
-        stride = header.cupsRowStep
+        # Read image data of this page into a bytearray. cupsBytesPerLine is the
+        # real row stride in the raster data stream (cupsRowStep is a driver-
+        # specific value, not the data stride), so a padded row is stripped
+        # rather than silently shifting every following row.
+        stride = header.cupsBytesPerLine
         packed = (header.cupsWidth * header.cupsBitsPerPixel + 7) // 8
         size = stride * header.cupsHeight
         if len(rdata) < 1796 + size:
