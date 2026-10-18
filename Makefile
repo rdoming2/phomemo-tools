@@ -31,6 +31,7 @@ FILES += cups/drv/phomemo-d30.drv
 FILES += cups/drv/phomemo-m421.drv
 FILES += cups/drv/phomemo-m04.drv
 FILES += cups/drv/phomemo-m832.drv
+FILES += cups/drv/phomemo-m832d.drv
 FILES += glabels/generate.sh
 FILES += glabels/Makefile
 FILES += glabels/Phomemo_Q22.template
