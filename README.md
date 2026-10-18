@@ -627,6 +627,6 @@ The image is sent as one GS v 0 block per page, with 16-bit little-endian byte
 width and line count. The inter-page feed is ESC d 2 and the job footer is two
 ESC d 2 commands.
 
-The filter defaults to the same PIL dithering the other filters use. Atkinson,
-Floyd-Steinberg and a plain threshold remain available as explicit choices, and
-the threshold value applies only to those renderers.
+The filter defaults to PIL's Floyd-Steinberg, the same dithering the other filters
+use. Atkinson and a plain threshold remain available as explicit choices, and the
+threshold value applies only to the threshold renderer.

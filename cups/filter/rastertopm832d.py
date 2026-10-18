@@ -9,9 +9,9 @@
 # filter, so the model gate lives in the PPD Filter line and in the backend,
 # not here.
 #
-# Rendering defaults to the same PIL path the other filters use. Atkinson and
-# Floyd-Steinberg remain available as explicit choices; the threshold option
-# applies to those renderers only, not to the default PIL dithering.
+# Rendering defaults to PIL's Floyd-Steinberg, the same path the other filters
+# use. Atkinson and a plain threshold remain available as explicit choices; the
+# threshold option applies to that renderer only.
 #
 # The filter performs no Bluetooth or USB I/O: it writes the command stream on
 # stdout and uses the CUPS back channel (fd 3) for the readiness reply and the
@@ -123,7 +123,7 @@ def parse_options(raw):
     options = {
         'density': DENSITY,
         'threshold': THRESHOLD,
-        'rendering': 'default',
+        'rendering': 'floyd-steinberg',
         'rotation': 0,
         'offset_x': 0,
         'offset_y': 0,
@@ -140,10 +140,11 @@ def parse_options(raw):
         named = {
             ('density', 'Default'): 2, ('density', 'Fine'): 1,
             ('density', 'Medium'): 2, ('density', 'Thick'): 4,
-            ('rendering', 'Default'): 'default',
-            ('rendering', 'Atkinson'): 'atkinson',
             ('rendering', 'FloydSteinberg'): 'floyd-steinberg',
+            ('rendering', 'Atkinson'): 'atkinson',
             ('rendering', 'Threshold'): 'threshold',
+            # Queues created before the default was renamed still send Default.
+            ('rendering', 'Default'): 'floyd-steinberg',
         }.get((name, values[key]))
         if named is not None:
             options[name] = named
@@ -157,16 +158,17 @@ def parse_options(raw):
         raise ValueError('darkness is outside its supported range')
     if not 0 <= options['threshold'] <= 255:
         raise ValueError('threshold is outside its supported range')
-    if options['rendering'] not in ('default', 'atkinson', 'floyd-steinberg', 'threshold'):
-        raise ValueError('rendering must be Default, Atkinson, FloydSteinberg, or Threshold')
+    if options['rendering'] not in ('floyd-steinberg', 'atkinson', 'threshold'):
+        raise ValueError('rendering must be FloydSteinberg, Atkinson, or Threshold')
     if options['rotation'] not in (0, 90, 180, 270):
         raise ValueError('rotation must be 0, 90, 180, or 270')
     if options['page_pause'] not in (0, 5, 10, 20, 30):
         raise ValueError('page pause must be 0, 5, 10, 20, or 30 seconds')
     return options
 
-# Deterministic integer error diffusion keeps the explicit renderers reproducible
-# across platforms. Diffusion uses a fixed luminance midpoint; the configurable
+# Atkinson is the only renderer implemented here; Floyd-Steinberg comes from PIL.
+# Deterministic integer error diffusion keeps Atkinson reproducible across
+# platforms. Diffusion uses a fixed luminance midpoint; the configurable
 # threshold applies only to the simple threshold renderer.
 SCALE = 4096
 MIDPOINT = 128 * SCALE
@@ -177,7 +179,7 @@ def round_division(value, divisor):
         return (value + divisor // 2) // divisor
     return -((-value + divisor // 2) // divisor)
 
-def diffuse(rows, algorithm):
+def diffuse(rows):
     # Serpentine traversal with mirrored horizontal weights
     width = len(rows[0]) if rows else 0
     current = [0] * width
@@ -193,38 +195,30 @@ def diffuse(rows, algorithm):
             black = adjusted < MIDPOINT
             output[x] = 1 if black else 0
             error = adjusted - (0 if black else 255 * SCALE)
-            # Floyd-Steinberg reaches the current/next rows. Atkinson also
-            # carries error two rows ahead; odd rows mirror horizontal offsets.
-            if algorithm == 'floyd-steinberg':
-                neighbors = ((x + (-1 if reverse else 1), 7),
-                             (x + (1 if reverse else -1), 3),
-                             (x, 5),
-                             (x + (-1 if reverse else 1), 1))
-                targets = (current, next_row, next_row, next_row)
-            else:
-                direction = -1 if reverse else 1
-                neighbors = ((x + direction, 2), (x + 2 * direction, 2),
-                             (x - direction, 2), (x, 2),
-                             (x + direction, 2), (x, 2))
-                targets = (current, current, next_row, next_row, next_row,
-                           next_next_row)
+            # Atkinson carries error two rows ahead; odd rows mirror horizontal
+            # offsets.
+            direction = -1 if reverse else 1
+            neighbors = ((x + direction, 2), (x + 2 * direction, 2),
+                         (x - direction, 2), (x, 2),
+                         (x + direction, 2), (x, 2))
+            targets = (current, current, next_row, next_row, next_row,
+                       next_next_row)
             for target, (neighbor, weight) in zip(targets, neighbors):
                 if 0 <= neighbor < width:
                     target[neighbor] += round_division(error * weight, 16)
         rendered.append(output)
         current, next_row = next_row, [0] * width
-        if algorithm == 'atkinson':
-            next_row, next_next_row = next_next_row, [0] * width
+        next_row, next_next_row = next_next_row, [0] * width
     return rendered
 
 def render(im, options):
     # Return the page as a mode '1' image where a set bit means a printed dot.
-    if options['rendering'] == 'default':
+    if options['rendering'] == 'floyd-steinberg':
         return ImageOps.invert(im).convert('1')
 
     raw = im.tobytes()
     rows = [raw[y * im.width:(y + 1) * im.width] for y in range(im.height)]
-    flags = diffuse(rows, options['rendering']) if options['rendering'] != 'threshold' \
+    flags = diffuse(rows) if options['rendering'] == 'atkinson' \
         else [bytearray(value < options['threshold'] for value in row) for row in rows]
 
     packed = bytearray()

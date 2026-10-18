@@ -52,12 +52,11 @@ MaxSize 216mm 0mm
    Choice "Medium/Medium" ""
    Choice "Thick/Thick" ""
 
-  // The default renderer is the PIL path the other Phomemo filters use. The
-  // threshold value only applies to the explicit renderers below.
+  // The default is PIL's Floyd-Steinberg, the same path the other Phomemo
+  // filters use. The threshold value only applies to the threshold renderer.
   Option "M832DRendering/Grayscale rendering" PickOne AnySetup 10
-   *Choice "Default/Default (PIL dithering)" ""
+   *Choice "FloydSteinberg/Floyd-Steinberg (PIL)" ""
    Choice "Atkinson/Atkinson" ""
-   Choice "FloydSteinberg/Floyd-Steinberg" ""
    Choice "Threshold/Binary threshold" ""
 
   Option "M832DThreshold/Threshold" PickOne AnySetup 10
