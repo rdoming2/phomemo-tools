@@ -371,9 +371,9 @@ directly with the `phomemo-ble://` scheme, and an M832D queue on a
 `serial:/dev/usb/lp0` device uses the same filter over USB.
 
 Throughput on Bluetooth is limited by the transport, not by the printer. The backend
-writes in acknowledged chunks, and 182 bytes is the tested ceiling for one write, so
-every chunk waits for its ATT acknowledgement and a page costs roughly one round trip
-per chunk. Time therefore grows with the amount of raster in the page, and the
+writes in acknowledged chunks, and 182 bytes is the tested ceiling for one write (section
+6.1), so every chunk waits for its ATT acknowledgement and a page costs roughly one round
+trip per chunk. Time therefore grows with the amount of raster in the page, and the
 effective rate falls as the media gets larger: a small label finishes in seconds while
 a full page, or a cut sheet such as A4 or Letter, takes minutes. Media widths of
 110 mm and less are the practical ones over Bluetooth; the same filter on a USB queue
@@ -386,6 +386,8 @@ not sufficient on its own.
 A successful backend exit and an ATT acknowledgement confirm that the host
 delivered bytes, not that the printer physically finished the page. The backend
 does not retry once data may have reached the printer.
+
+How those bytes reach the printer, in broad strokes, is section 6.1.
 
 ##### 2.2.2.2. USB
 
@@ -683,3 +685,27 @@ The filter has two print modes. Grayscale uses PIL's Floyd-Steinberg by default,
 same dithering the other filters use, with Atkinson as an explicit choice; Black and
 White is a hard threshold with no dithering, and the threshold value applies only to
 that mode.
+
+### 6.1. Bluetooth Low Energy backend
+
+The filter performs no transport I/O: `cups/filter/rastertopm832d.py` writes the
+command stream described above on stdout, and `cups/backend/phomemo-ble.py` carries
+it byte-for-byte and in order to the printer. The `phomemo` backend reads ModelName
+from the PPD and hands a queue in the BLE whitelist to that script with the same
+arguments, environment and CUPS descriptors.
+
+The printer is selected by the address in the queue URI, never by its advertised
+name, and the LE bearer is chosen explicitly rather than by falling back to Classic
+Bluetooth, as described in section 2.2.2.1.4. Pairing runs once automatically, only
+when no bond exists and only for Just Works, so PIN and passkey entry are refused.
+
+Characteristics are resolved by UUID rather than by captured ATT handles: FF02 must
+support acknowledged writes and FF03 must support notifications, and both are required
+before any job byte is accepted. Output goes to FF02 in chunks of at most 182 bytes,
+each awaiting its ATT response, so one chunk costs one round trip. FF03 values are
+forwarded raw and in callback order to the CUPS back channel (fd 3), where the filter
+looks only for the `1a 04` answer to its readiness query before sending the rest of the
+setup, and the side channel (fd 4) answers the page-pause drain only after every byte
+produced before that request has been acknowledged. An acknowledgement proves transport
+acceptance rather than a printed page, so the backend does not retry once bytes may have
+reached the printer.
