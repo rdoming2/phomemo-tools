@@ -129,8 +129,37 @@ The M832D filters and the CUPS backends have been tested and work on Ubuntu 24.0
   $ sudo apt-get install cups python3-pil python3-usb python3-bleak python3-dbus-fast
 ```
 
-Pairing over BLE needs BlueZ experimental mode; see section 2.2.2.1.3 for the
+Pairing over BLE needs BlueZ experimental mode; see section 2.2.2.1.4 for the
 requirement and how to enable it.
+
+#### Debian 13
+
+The M832D filters and the CUPS backends have also been tested and work on Debian 13,
+with the same dependencies as Ubuntu 24.04 LTS:
+
+```
+  $ sudo apt-get update
+  $ sudo apt-get install cups python3-pil python3-usb python3-bleak python3-dbus-fast
+```
+
+and the same BlueZ experimental mode, enabled as described in section 2.2.2.1.4.
+
+#### Fedora
+
+The M832D filters and the CUPS backends have also been tested and work on Fedora, with the
+same BlueZ experimental mode as Ubuntu 24.04 LTS and Debian 13, and with the Bluetooth
+controller set to LE only instead of dual mode (see section 2.2.2.1.4).
+
+What was installed for the test:
+
+```
+  $ sudo dnf install python3-pillow python3-usb python3-dbus-fast
+  $ pip install bleak
+```
+
+`bleak` came from pip, `python3-bleak` being the dnf equivalent. The Debian blocks above
+use the Debian spellings of the same packages, `python3-pil` and `python3-pyusb`. The
+SELinux note in section 2.2.1.1 applies as before.
 
 Finally once you are in the folder containing your copy of this repository you can build and install phomemo-tools files:
 
@@ -172,7 +201,7 @@ If phomemo-tools was installed from the COPR RPM, use the package manager instea
 
 #### 2.2.1. GUI
 
-##### 2.2.2.1.1. Pre-requisite
+##### 2.2.1.1. Pre-requisite
 
 On Fedora, SELinux seems to prevent the backend to create a bluetooth socket.
 If you have such error message in your syslog:
@@ -191,7 +220,7 @@ I didn't find a way to define correctly the SELinux rules to allow the backend
 to use bluetooth socket without to change the enforcement mode
 (the couple ausearch/audit2allow doesn't fix the problem).
 
-##### 2.2.2.1.1. Pair the printer
+##### 2.2.1.2. Pair the printer
 
 1. Switch on the printer
 2. Open the "Settings" window:
@@ -287,7 +316,7 @@ Medium, Dark) and `PrintMode` (Grayscale, BlackWhite).
 ###### 2.2.2.1.4 M832D
 
 The M832D is a Bluetooth Low Energy printer with no RFCOMM channel. BlueZ
-experimental mode is required for it on both Ubuntu and Fedora, because the BLE
+experimental mode is required for it on Ubuntu, Debian and Fedora, because the BLE
 backend needs the experimental D-Bus interfaces (the LE bearer, PreferredBearer and
 ConnectDevice) to pair and connect the printer.
 
@@ -312,6 +341,14 @@ daemon, so it is not sufficient on its own.
 A bond created before experimental mode was enabled may have no LE bearer, so a
 printer that was paired earlier has to be paired again.
 
+In testing on Fedora, the controller needed to be set to LE only rather than dual mode. 
+The backend chooses the LE bearer explicitly and never falls back to Classic Bluetooth, 
+so a printer that BlueZ resolves over BR/EDR is rejected as having no LE address type. 
+The bearer is chosen with ConnectDevice, or with PreferredBearer, which BlueZ only 
+provisions for a public-address device. If the machine has more than one controller, 
+name the LE one in the queue URI, `phomemo://DC0D309023C7?adapter=hci0`; a printer 
+discovered through another adapter is refused.
+
 Then pair the printer and define the queue with the same "phomemo" backend:
 
 ```
@@ -326,6 +363,15 @@ keeps the RFCOMM path unchanged. Add a model to `BLE_MODELS` in
 `cups/backend/phomemo.py` to extend the whitelist. The backend can also be reached
 directly with the `phomemo-ble://` scheme, and an M832D queue on a
 `serial:/dev/usb/lp0` device uses the same filter over USB.
+
+Throughput on Bluetooth is limited by the transport, not by the printer. The backend
+writes in acknowledged chunks, and 182 bytes is the tested ceiling for one write, so
+every chunk waits for its ATT acknowledgement and a page costs roughly one round trip
+per chunk. Time therefore grows with the amount of raster in the page, and the
+effective rate falls as the media gets larger: a small label finishes in seconds while
+a full page, or a cut sheet such as A4 or Letter, takes minutes. Media widths of
+110 mm and less are the practical ones over Bluetooth; the same filter on a USB queue
+does not have this limit.
 
 The SELinux note above covers the RFCOMM socket. The BLE backend reaches BlueZ
 over D-Bus instead, which may need a different policy; the permissive setting is
@@ -358,7 +404,7 @@ Use "Phomemo-M02.ppd.gz" for M02, "Phomemo-M02Pro.ppd.gz" for M02 Pro, and "Phom
                           -P /usr/share/cups/model/Phomemo/Phomemo-M02S.ppd.gz
 ```
 
-###### 2.2.2.1.2 M110, M120, M220
+###### 2.2.2.2.2 M110, M120, M220
 
 Use "Phomemo-M110.ppd.gz" for M110, "Phomemo-M120.ppd.gz" for M120, and "Phomemo-M220.ppd.gz" for M220 (same driver, M220 exposes w70h80).
 The -p option defines the printer name. It should be changed according to the printer used.
@@ -610,9 +656,9 @@ Dumpping USB packets.
 
 # 6. Protocol for M832D
 
-The M832D uses the same GS v 0 raster block and ESC d feed as the M04 family, but
-its setup block is a fixed sequence that includes two things no other Phomemo
-model understands: the readiness query and a vendor triple.
+The M832D uses the same GS v 0 raster block and ESC d feed as the M04 family, but its
+setup block is a fixed sequence that sends the readiness query up front, where the M02
+protocol in section 4.3 only sends it at the end of the job.
 
 ```
   0x1f 0x11 0x08      -> readiness query, answered by 0x1a 0x04 on the back channel
@@ -629,4 +675,4 @@ ESC d 2 commands.
 
 The filter defaults to PIL's Floyd-Steinberg, the same dithering the other filters
 use. Atkinson and a plain threshold remain available as explicit choices, and the
-threshold value applies only to the threshold renderer.
+threshold value applies only to the binary threshold renderer.
