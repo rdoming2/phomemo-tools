@@ -9,9 +9,13 @@
 # filter, so the model gate lives in the PPD Filter line and in the backend,
 # not here.
 #
-# Rendering defaults to PIL's Floyd-Steinberg, the same path the other filters
-# use. Atkinson and a plain threshold remain available as explicit choices; the
-# threshold option applies to that renderer only.
+# Print mode is Grayscale or Black and White, the same split the M832 driver
+# offers. Grayscale uses PIL's Floyd-Steinberg by default, with Atkinson as an
+# explicit choice; Black and White is a hard threshold with no dithering, and the
+# threshold option applies only to that mode.
+#
+# Media type is Continuous by default and Black Mark (B-Line) when the PPD
+# selects it, which is reported as 1F 11 26 instead of 1F 11 0B.
 #
 # The filter performs no Bluetooth or USB I/O: it writes the command stream on
 # stdout and uses the CUPS back channel (fd 3) for the readiness reply and the
@@ -123,6 +127,7 @@ def parse_options(raw):
     options = {
         'density': DENSITY,
         'threshold': THRESHOLD,
+        'print_mode': 'grayscale',
         'rendering': 'floyd-steinberg',
         'rotation': 0,
         'offset_x': 0,
@@ -131,7 +136,8 @@ def parse_options(raw):
     }
     values = dict(item.split('=', 1) for item in raw.split() if '=' in item)
     aliases = {'M832DDarkness': 'density', 'M832DDensity': 'density',
-               'M832DThreshold': 'threshold', 'M832DRendering': 'rendering',
+               'M832DThreshold': 'threshold', 'M832DPrintMode': 'print_mode',
+               'M832DRendering': 'rendering',
                'M832DRotation': 'rotation', 'M832DOffsetX': 'offset_x',
                'M832DOffsetY': 'offset_y', 'M832DPagePause': 'page_pause'}
     for key, name in aliases.items():
@@ -140,11 +146,10 @@ def parse_options(raw):
         named = {
             ('density', 'Default'): 2, ('density', 'Fine'): 1,
             ('density', 'Medium'): 2, ('density', 'Thick'): 4,
+            ('print_mode', 'Grayscale'): 'grayscale',
+            ('print_mode', 'BlackWhite'): 'blackwhite',
             ('rendering', 'FloydSteinberg'): 'floyd-steinberg',
             ('rendering', 'Atkinson'): 'atkinson',
-            ('rendering', 'Threshold'): 'threshold',
-            # Queues created before the default was renamed still send Default.
-            ('rendering', 'Default'): 'floyd-steinberg',
         }.get((name, values[key]))
         if named is not None:
             options[name] = named
@@ -158,8 +163,10 @@ def parse_options(raw):
         raise ValueError('darkness is outside its supported range')
     if not 0 <= options['threshold'] <= 255:
         raise ValueError('threshold is outside its supported range')
-    if options['rendering'] not in ('floyd-steinberg', 'atkinson', 'threshold'):
-        raise ValueError('rendering must be FloydSteinberg, Atkinson, or Threshold')
+    if options['print_mode'] not in ('grayscale', 'blackwhite'):
+        raise ValueError('print mode must be Grayscale or BlackWhite')
+    if options['rendering'] not in ('floyd-steinberg', 'atkinson'):
+        raise ValueError('rendering must be FloydSteinberg or Atkinson')
     if options['rotation'] not in (0, 90, 180, 270):
         raise ValueError('rotation must be 0, 90, 180, or 270')
     if options['page_pause'] not in (0, 5, 10, 20, 30):
@@ -169,7 +176,7 @@ def parse_options(raw):
 # Atkinson is the only renderer implemented here; Floyd-Steinberg comes from PIL.
 # Deterministic integer error diffusion keeps Atkinson reproducible across
 # platforms. Diffusion uses a fixed luminance midpoint; the configurable
-# threshold applies only to the simple threshold renderer.
+# threshold applies only to the Black and White print mode, which is not dithered.
 SCALE = 4096
 MIDPOINT = 128 * SCALE
 
@@ -213,13 +220,18 @@ def diffuse(rows):
 
 def render(im, options):
     # Return the page as a mode '1' image where a set bit means a printed dot.
-    if options['rendering'] == 'floyd-steinberg':
+    if options['print_mode'] == 'grayscale' and \
+            options['rendering'] == 'floyd-steinberg':
         return ImageOps.invert(im).convert('1')
 
     raw = im.tobytes()
     rows = [raw[y * im.width:(y + 1) * im.width] for y in range(im.height)]
-    flags = diffuse(rows) if options['rendering'] == 'atkinson' \
-        else [bytearray(value < options['threshold'] for value in row) for row in rows]
+    if options['print_mode'] == 'blackwhite':
+        # Black and White is a hard threshold, like the M832 path; the
+        # dithering choice does not apply to it.
+        flags = [bytearray(value < options['threshold'] for value in row) for row in rows]
+    else:
+        flags = diffuse(rows)
 
     packed = bytearray()
     for row in flags:
@@ -247,7 +259,17 @@ def transform(im, options):
         im = im.transpose(Image.Transpose.ROTATE_90)
     return im
 
-def print_header(file, density = DENSITY, gate = False):
+MEDIA_CONTINUOUS = 0x0b
+MEDIA_BLACK_MARK = 0x26
+
+def media_type(header):
+    # B-Line is the black mark stock, selected by the PPD MediaType option and
+    # delivered as cupsMediaType. Rolls with no marks are reported as continuous.
+    if header.cupsMediaType == MEDIA_BLACK_MARK:
+        return MEDIA_BLACK_MARK
+    return MEDIA_CONTINUOUS
+
+def print_header(file, media, density = DENSITY, gate = False):
     file.write(READY_QUERY)                                     # readiness query
     if gate:
         # On BLE the query is answered on the back channel before the rest of the
@@ -258,7 +280,7 @@ def print_header(file, density = DENSITY, gate = False):
     file.write(US + b'\x11\x37' + HEAT.to_bytes(1, 'little'))  # set heat/speed
     file.write(b'\xaa\xab\xac\x02')                            # vendor triple
     file.write(US + b'\x11\x02' + density.to_bytes(1, 'little'))  # set density
-    file.write(US + b'\x11\x0b')                               # media type: continuous
+    file.write(US + b'\x11' + media.to_bytes(1, 'little'))    # media type
     file.write(US + b'\x11\x35\x00')                           # compression: raw
     return
 
@@ -356,7 +378,8 @@ try:
             im = im.convert('L')
             im = transform(render(im, options), options)
 
-            print_header(stdout, options['density'], gate = (ble and i == 0))
+            print_header(stdout, media_type(header), options['density'],
+                         gate = (ble and i == 0))
             # The M832D takes the whole page as one GS v 0 block; the 16-bit line
             # count is the only reason to split.
             line = 0

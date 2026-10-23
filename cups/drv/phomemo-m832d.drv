@@ -41,6 +41,12 @@ VariablePaperSize Yes
 MinSize 0mm 0mm
 MaxSize 216mm 0mm
 
+// Media type is chosen by the PPD and reaches the filter as cupsMediaType.
+// Continuous is the default; BLine is the black mark stock, which the filter
+// reports to the printer as 1F 11 26 instead of 1F 11 0B.
+*MediaType 11 "Continuous/Continuous"
+MediaType 38 "BLine/Black Mark"
+
 {
   Attribute "NickName" "" "Phomemo M832D"
   ModelName "M832D"
@@ -52,14 +58,20 @@ MaxSize 216mm 0mm
    Choice "Medium/Medium" ""
    Choice "Thick/Thick" ""
 
+  // Print mode is the choice the M832 driver offers: Grayscale keeps the
+  // dithering technique below, Black and White is a hard threshold with no
+  // dithering. The threshold value applies only to Black and White.
+  Option "M832DPrintMode/Print Mode" PickOne AnySetup 10
+   *Choice "Grayscale/Grayscale (dithered)" ""
+   Choice "BlackWhite/Black and White" ""
+
   // The default is PIL's Floyd-Steinberg, the same path the other Phomemo
-  // filters use. The threshold value only applies to the threshold renderer.
-  Option "M832DRendering/Grayscale rendering" PickOne AnySetup 10
+  // filters use. It applies only when the print mode is Grayscale.
+  Option "M832DRendering/Grayscale dithering" PickOne AnySetup 10
    *Choice "FloydSteinberg/Floyd-Steinberg (PIL)" ""
    Choice "Atkinson/Atkinson" ""
-   Choice "Threshold/Binary threshold" ""
 
-  Option "M832DThreshold/Threshold" PickOne AnySetup 10
+  Option "M832DThreshold/Black and White threshold" PickOne AnySetup 10
    *Choice "160/160" ""
    Choice "128/128" ""
    Choice "192/192" ""

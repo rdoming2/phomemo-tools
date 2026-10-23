@@ -357,6 +357,12 @@ Then pair the printer and define the queue with the same "phomemo" backend:
                            -P /usr/share/cups/model/Phomemo/Phomemo-M832D.ppd.gz
 ```
 
+Options: `MediaType` (Continuous, BLine), `M832DDarkness` (Default, Fine, Medium,
+Thick), `M832DPrintMode` (Grayscale, BlackWhite), `M832DRendering` (FloydSteinberg,
+Atkinson), `M832DThreshold` (the Black and White cut-off), `M832DRotation`,
+`M832DOffsetX`, `M832DOffsetY` and `M832DPagePause`. The dithering choice applies only
+to Grayscale and the threshold value only to Black and White.
+
 The backend reads the ModelName from the PPD of the job and only routes queues
 whose model is in the BLE whitelist to the phomemo-ble backend; every other model
 keeps the RFCOMM path unchanged. Add a model to `BLE_MODELS` in
@@ -665,7 +671,7 @@ protocol in section 4.3 only sends it at the end of the job.
   0x1f 0x11 0x37 0x37 -> heat, fixed at 0x37
   0xaa 0xab 0xac 0x02 -> vendor triple, meaning unexplained
   0x1f 0x11 0x02      -> print density, default 0x02
-  0x1f 0x11 0x0b      -> media type: continuous
+  0x1f 0x11 0x0b      -> media type: continuous, or 0x26 for black mark
   0x1f 0x11 0x35 0x00 -> compression: raw
 ```
 
@@ -673,6 +679,7 @@ The image is sent as one GS v 0 block per page, with 16-bit little-endian byte
 width and line count. The inter-page feed is ESC d 2 and the job footer is two
 ESC d 2 commands.
 
-The filter defaults to PIL's Floyd-Steinberg, the same dithering the other filters
-use. Atkinson and a plain threshold remain available as explicit choices, and the
-threshold value applies only to the binary threshold renderer.
+The filter has two print modes. Grayscale uses PIL's Floyd-Steinberg by default, the
+same dithering the other filters use, with Atkinson as an explicit choice; Black and
+White is a hard threshold with no dithering, and the threshold value applies only to
+that mode.
