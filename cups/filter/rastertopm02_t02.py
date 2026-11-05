@@ -88,6 +88,27 @@ def print_raster(file, image, line, lines = 0xff, mode = 0):
     stdout.write(block.tobytes())
     return
 
+def place_on_head(header, im):
+    # The raster need not cover the printable width: cups-filters 2.x imagetoraster
+    # sends only the area an image covers. Put the raster where CUPS imaged it on
+    # the page, on a canvas as wide as the head: the page less the drivers' 1 mm
+    # HWMargins, so 384 dots for the M02 at 203 dpi.
+    margin = 72 / 25.4
+    xres, yres = header.HWResolutionH, header.HWResolutionV
+    page_w = header.cupsPageSizeW or header.PageSizeW
+    page_h = header.cupsPageSizeH or header.PageSizeH
+    left, top, right = header.cupsImagingBBoxL, header.cupsImagingBBoxT, header.cupsImagingBBoxR
+    if not right:
+        left, top, right = header.ImagingBoundingBoxL, header.ImagingBoundingBoxT, header.ImagingBoundingBoxR
+    width = round((page_w - 2 * margin) * xres / 72)
+    if not right or width <= 0:
+        return im
+    x = round((left - margin) * xres / 72)
+    y = round((page_h - top) * yres / 72)
+    page = Image.new('1', (width, max(round(page_h * yres / 72), y + im.height)), 0)
+    page.paste(im, (x, y))
+    return page
+
 def print_and_feed(file, lines = 1):
     file.write(ESC + b'd') # print and feed
     file.write(lines.to_bytes(1, 'little'))
@@ -105,7 +126,7 @@ for i, datatuple in enumerate(pages):
     im = Image.frombuffer(mode='L', data=imgdata,
                           size=(header.cupsWidth, header.cupsHeight))
     im = ImageOps.invert(im)
-    im = im.convert('1')
+    im = place_on_head(header, im.convert('1'))
 
     line = 0
     with os.fdopen(sys.stdout.fileno(), "wb", closefd=False) as stdout:

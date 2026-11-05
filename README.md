@@ -117,8 +117,8 @@ Next you need to ensure the required dependencies are installed (if this is skip
 ```
 
 For the M832D Bluetooth Low Energy backend, also install `python3-bleak` and
-`python3-dbus-fast`. They are only used for M832D queues, so the other models
-work without them.
+`python3-dbus-fast`. They are only used for M832D queues and `phomemo-ble://`
+queues, so the other models work without them.
 
 #### Ubuntu 24.04 LTS
 
@@ -290,6 +290,20 @@ Use "Phomemo-M02.ppd.gz" for M02, "Phomemo-M02Pro.ppd.gz" for M02 Pro, and "Phom
 ```
   $ sudo lpadmin -p M02S -E -v phomemo://DC0D309023C7 \
                           -P /usr/share/cups/model/Phomemo/Phomemo-M02S.ppd.gz
+```
+
+Some M02 units have no RFCOMM channel and are reached over Bluetooth Low Energy only.
+Define those with the `phomemo-ble://` scheme, which needs the `python3-bleak` and
+`python3-dbus-fast` packages listed in section 2.1. The printer must be bonded: if
+no bond exists, the backend pairs it on the first job, and pairing it beforehand
+with `bluetoothctl pair` as in section 1.1 works as well. BlueZ experimental mode
+is not needed for a printer BlueZ has only seen over LE: without it, the backend
+connects the bonded printer with Device1.Connect, which BlueZ routes to the bonded
+bearer.
+
+```
+  $ sudo lpadmin -p M02 -E -v phomemo-ble://DC0D309023C7 \
+                           -P /usr/share/cups/model/Phomemo/Phomemo-M02.ppd.gz
 ```
 
 ###### 2.2.2.1.2 M110, M120, M220

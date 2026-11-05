@@ -352,6 +352,12 @@ def unsupported_inspection(exc):
                ('UnknownMethod', 'UnknownInterface', 'NotSupported'))
 
 
+def missing_property(exc):
+    # BlueZ without its experimental interfaces, such as stock BlueZ 5.72 on
+    # Ubuntu 24.04, has no Device1.PreferredBearer.
+    return 'No such property' in str(exc)
+
+
 async def connect_bus(timeout = BUS_TIMEOUT):
     return await asyncio.wait_for(MessageBus(bus_type = BusType.SYSTEM).connect(), timeout)
 
@@ -469,7 +475,8 @@ async def ensure_paired(bus, call, device_path, discovered_props, cancel_event, 
 
     Pairing is refused when existing bond state cannot be inspected. Completion is
     rechecked before returning, and timeout or cancellation requests CancelPairing.
-    Trust is deliberately applied later, only after verification.
+    The device is not marked trusted: BlueZ keeps auto-connecting a trusted
+    device that offers HID over GATT, as the M02 does, after every disconnect.
     """
     try:
         paired = await pairing_state(call, device_path, discovered_props)
@@ -542,7 +549,11 @@ async def connect_device(call):
 
 
 async def ensure_preferred_le(call):
-    """Provision and verify the exact device's persistent LE preference."""
+    """Provision and verify the exact device's persistent LE preference.
+
+    Without PreferredBearer, pairing goes over the bearer BlueZ selects, which is
+    LE for a printer it has only seen over LE.
+    """
     try:
         value = await property_value(call, 'PreferredBearer')
         if value == 'le':
@@ -551,6 +562,8 @@ async def ensure_preferred_le(call):
                    [DEVICE_INTERFACE, 'PreferredBearer', Variant('s', 'le')])
         value = await property_value(call, 'PreferredBearer')
     except RuntimeError as exc:
+        if missing_property(exc):
+            return False
         raise SetupRequiredError(
             'Unable to provision PreferredBearer=le for the configured printer: %s' % exc) from exc
     if value != 'le':
@@ -559,28 +572,20 @@ async def ensure_preferred_le(call):
 
 
 async def connect_with_provisioned_le(call):
-    """Verify an administrator-provisioned LE preference without changing it."""
-    if await property_value(call, 'PreferredBearer') != 'le':
-        raise SetupRequiredError('BlueZ PreferredBearer must be provisioned as le before printing')
-    await connect_device(call)
+    """Verify an administrator-provisioned LE preference without changing it.
 
-
-async def ensure_trusted(call, discovered_props = None):
-    """Trust only the exact configured device after its LE bond is verified."""
-    discovered_props = discovered_props or {}
-    if discovered_props.get('Trusted') is True:
-        return False
+    Without PreferredBearer, as on BlueZ without experimental mode, Device1.Connect
+    selects the bonded bearer when only one is bonded (select_conn_bearer in BlueZ
+    5.72), so a printer bonded over LE alone is connected over LE. The caller has
+    verified the bond.
+    """
     try:
-        if await property_value(call, 'Trusted') is True:
-            return False
-        await call('org.freedesktop.DBus.Properties', 'Set', 'ssv',
-                   [DEVICE_INTERFACE, 'Trusted', Variant('b', True)])
-        value = await property_value(call, 'Trusted')
+        if await property_value(call, 'PreferredBearer') != 'le':
+            raise SetupRequiredError('BlueZ PreferredBearer must be provisioned as le before printing')
     except RuntimeError as exc:
-        raise SetupRequiredError('Unable to trust the configured printer after pairing: %s' % exc) from exc
-    if value is not True:
-        raise SetupRequiredError('BlueZ did not retain Trusted=true for the configured printer')
-    return True
+        if not missing_property(exc):
+            raise
+    await connect_device(call)
 
 
 async def explicit_le_connect(device, configured_adapter = None, cancel_event = None,
@@ -589,10 +594,10 @@ async def explicit_le_connect(device, configured_adapter = None, cancel_event = 
 
     An existing exact-address connection is adopted. Otherwise this prefers
     Adapter1.ConnectDevice, permits generic Device1.Connect only for a sole new LE
-    bond, a random address, or a verified PreferredBearer=le, and fails closed for
-    an ambiguous public-address device. Pairing and connection each receive one
-    bounded attempt; connections created during a failed attempt are rolled back
-    best-effort.
+    bond, a random address, a verified PreferredBearer=le, or a verified bond on a
+    BlueZ without PreferredBearer, where BlueZ connects the bonded bearer, and fails
+    closed for an ambiguous public-address device. Pairing and connection each receive one bounded attempt; connections
+    created during a failed attempt are rolled back best-effort.
     """
     path = device.details.get('path')
     props = device.details.get('props', {})
@@ -627,7 +632,6 @@ async def explicit_le_connect(device, configured_adapter = None, cancel_event = 
             newly_paired = await ensure_paired(bus, call, path, props,
                                                cancel_event or asyncio.Event(),
                                                CONNECT_TIMEOUT, pairing_callback)
-            await ensure_trusted(call, props)
         if newly_paired:
             if await device_connected(call, path):
                 # Device1.Pair connected over the LE discovery path and completed
